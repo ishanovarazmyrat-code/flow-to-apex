@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>59.0</apiVersion>
+    <label>Account Count Contacts</label>
+    <processType>AutoLaunchedFlow</processType>
+    <status>Active</status>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Get_Related_Contacts</targetReference>
+        </connector>
+        <object>Account</object>
+        <recordTriggerType>CreateAndUpdate</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <recordLookups>
+        <name>Get_Related_Contacts</name>
+        <label>Get Related Contacts</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <connector>
+            <targetReference>Set_Contact_Count</targetReference>
+        </connector>
+        <object>Contact</object>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>AccountId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.Id</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>false</getFirstRecordOnly>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <assignments>
+        <name>Set_Contact_Count</name>
+        <label>Set Contact Count</label>
+        <locationX>176</locationX>
+        <locationY>242</locationY>
+        <connector>
+            <targetReference>Update_Account</targetReference>
+        </connector>
+        <assignmentItems>
+            <assignToReference>$Record.NumberOfEmployees</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Get_Related_Contacts</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <recordUpdates>
+        <name>Update_Account</name>
+        <label>Update Account</label>
+        <locationX>176</locationX>
+        <locationY>350</locationY>
+        <inputReference>$Record</inputReference>
+    </recordUpdates>
+</Flow>
