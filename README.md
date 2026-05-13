@@ -127,22 +127,7 @@ The generated Apex:
 | Bulkification | Loop + DML antipattern lifting; per-fire `$Record` update collector |
 | Output | Apex Trigger + Handler class with sharing-aware metadata |
 
-### Out of scope (parked for later phases)
 
-- Screen Flows, Scheduled Flows, Autolaunched Flows, Platform Event-Triggered Flows
-- Subflow chains
-- Action Calls (Invocable Apex, Platform Event publishing, HTTP Callout actions)
-- Wait elements / Pause / Resume
-- Custom Apex Plugin Calls
-- Fault path handling (try / catch translation)
-- Apex → Flow direction
-- CRUD / FLS injection (security review hardening)
-- Apex test class generation
-- Direct deployment to a Salesforce org
-
-When the parser encounters one of the parked element types, the generator emits a warning comment block at the top of the handler class listing what was skipped — so reviewers know the conversion is incomplete.
-
----
 
 ## Example outputs
 
