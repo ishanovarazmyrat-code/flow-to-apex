@@ -1,10 +1,96 @@
 # flow-to-apex (POC)
 
-A proof-of-concept command-line tool that converts a Salesforce **Record-Triggered Flow** (`.flow-meta.xml`) into an Apex **Trigger + Handler** class.
+A proof-of-concept command-line tool that converts a Salesforce **Record-Triggered Flow** (`.flow-meta.xml`) into an Apex **Trigger + Handler** class, with automatic bulkification for the loop+DML antipattern.
 
 This is a first-iteration POC delivery — scope was intentionally kept narrow so that one end-to-end migration path could be validated cleanly. See [Scope](#scope) below for what is and isn't supported.
 
 A full step-by-step user guide is included as a PDF in [`docs/flow-to-apex_User_Guide.pdf`](docs/flow-to-apex_User_Guide.pdf).
+
+---
+
+## Getting Started
+
+### 1. Clone the tool from GitHub
+
+```bash
+cd ~/Desktop   # or wherever you keep your projects
+git clone https://github.com/ishanovarazmyrat-code/flow-to-apex.git
+cd flow-to-apex
+npm install
+```
+
+That's it for the tool — no further build step.
+
+### 2. Make sure you have a Salesforce DX project authenticated to your org
+
+If you don't have one yet:
+
+```bash
+cd ~/Desktop
+sf project generate --name flowToApex --output-dir .
+cd flowToApex
+sf org login web --alias myDevOrg
+```
+
+If you already have an SFDX project, just make sure your target org is authenticated (`sf org list` should show it).
+
+### 3. Add a `convert-flow` shortcut to your shell
+
+Open your shell config (`~/.zshrc` on macOS, `~/.bashrc` on Linux) and append the function below. Replace the two paths with the absolute paths to (a) the cloned `flow-to-apex` folder and (b) your Salesforce DX project.
+
+```bash
+# flow-to-apex shortcut
+convert-flow() {
+    if [ -z "$1" ]; then
+        echo "Usage: convert-flow "
+        return 1
+    fi
+    node /Users//Desktop/flow-to-apex/src/cli.js --sfdx \
+        --source /Users//Desktop/flowToApex/force-app/main/default/flows/$1.flow-meta.xml \
+        --output /Users//Desktop/flowToApex/force-app/main/default
+}
+```
+
+Reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+### 4. Retrieve the Flow you want to convert from the org
+
+In VS Code (with the Salesforce Extension Pack), open your SFDX project, then:
+
+- Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
+- Run **SFDX: Retrieve Source in Manifest from Org**.
+- Pick **Flow** as the metadata type and select the Flow you want to convert.
+
+The Flow's `.flow-meta.xml` file lands in `force-app/main/default/flows/`.
+
+### 5. Run the converter
+
+From any terminal, just type:
+
+```bash
+convert-flow Account_Set_Default_Industry
+```
+
+(Replace `Account_Set_Default_Industry` with whatever Flow API name you retrieved.)
+
+The tool generates four files into your SFDX project:
+
+- `force-app/main/default/triggers/<Object>Trigger.trigger` (+ `-meta.xml`)
+- `force-app/main/default/classes/<FlowLabel>Handler.cls` (+ `-meta.xml`)
+
+### 6. Review, test, deploy
+
+- Open the generated trigger and handler in VS Code, review the logic, and confirm the bulkification looks right.
+- Write an Apex test class for the new handler (the converter does not generate tests automatically).
+- Deactivate the source Flow in the org so it doesn't double-fire alongside the trigger.
+- Right-click `force-app/main/default` in VS Code → **SFDX: Deploy Source to Org**.
+- Smoke-test in the org to confirm the Apex behaves the same as the Flow did.
+
+For the full migration workflow with `sf project deploy validate`, branch strategy, and deactivation steps, see `docs/flow-to-apex_User_Guide.pdf`.
 
 ---
 
@@ -25,99 +111,6 @@ The generated Apex:
 - Wraps logic in a `for (Object record : records)` loop — bulk-safe by construction.
 - **Lifts DML out of any inner Flow Loop** that contains an Update / Create / Delete Records element, collecting records into a `Map<Id, SObject>` and issuing a single DML after the loop closes. This is the central correctness concern of the converter — naive 1:1 translation would produce governor limit errors at scale.
 - Aggregates `$Record` updates from after-save Flows into a per-fire `Map<Id, SObject>` and issues a single bulk `update` at the end of the method.
-
----
-
-## Quick start
-
-```bash
-# Install dependencies (just fast-xml-parser)
-npm install
-
-# Run on a sample, flat output (good for inspecting / diffing)
-node src/cli.js \
-    --source test/fixtures/flows/Account_Close_Open_Opportunities.flow-meta.xml \
-    --output examples/output/Account_Close_Open_Opportunities
-```
-
-Output (flat layout, default):
-
-```
-examples/output/Account_Close_Open_Opportunities/
-├── AccountTrigger.trigger
-├── AccountTrigger.trigger-meta.xml
-├── AccountCloseOpenOpportunitiesHandler.cls
-└── AccountCloseOpenOpportunitiesHandler.cls-meta.xml
-```
-
----
-
-## Usage inside a Salesforce DX project
-
-When you want the converter to drop its output directly into an SFDX project (the typical workflow), pass `--sfdx` and point `--output` at your project's `force-app/main/default` directory. The tool will place trigger files under `triggers/` and class files under `classes/` automatically.
-
-```bash
-# From the root of your Salesforce DX project
-node /path/to/flow-to-apex/src/cli.js --sfdx \
-    --source force-app/main/default/flows/MyFlow.flow-meta.xml \
-    --output force-app/main/default
-```
-
-Resulting layout:
-
-```
-force-app/
-└── main/
-    └── default/
-        ├── classes/
-        │   ├── MyFlowHandler.cls
-        │   └── MyFlowHandler.cls-meta.xml
-        └── triggers/
-            ├── AccountTrigger.trigger
-            └── AccountTrigger.trigger-meta.xml
-```
-
-### Typical migration workflow
-
-The intended day-to-day usage inside a Salesforce project:
-
-```bash
-# 1. Branch from main
-git checkout main && git pull
-git checkout -b flow-migration/MyFlow
-
-# 2. Run the converter against the source Flow
-node /path/to/flow-to-apex/src/cli.js --sfdx \
-    --source force-app/main/default/flows/MyFlow.flow-meta.xml \
-    --output force-app/main/default
-
-# 3. Review the generated Apex
-git status
-git diff -- force-app/main/default/triggers force-app/main/default/classes
-
-# 4. Add an Apex test class for the converted handler (the tool does not
-#    generate one — POC limitation).
-
-# 5. Validate against the target org without deploying
-sf project deploy validate \
-    --source-dir force-app/main/default \
-    --target-org <targetOrg> \
-    --test-level RunLocalTests
-
-# 6. If validation passes, commit and open a PR
-git add force-app/main/default
-git commit -m "Migrate MyFlow to Apex (auto-generated, manually reviewed)"
-git push -u origin flow-migration/MyFlow
-
-# 7. After PR review, deactivate the source Flow in the target org and
-#    deploy the branch:
-sf project deploy start \
-    --source-dir force-app/main/default \
-    --target-org <targetOrg> \
-    --test-level RunLocalTests
-```
-
-The Flow itself stays on disk during this process so the team can compare side-by-side; deactivating happens in the org (or via a final commit that flips the Flow's `<status>` to `Draft`).
 
 ---
 
@@ -220,17 +213,3 @@ flow-to-apex/
 └── docs/
     └── flow-to-apex_User_Guide.pdf
 ```
-
----
-
-## Next phase candidates
-
-If this POC is approved for follow-up work, the natural next steps in priority order:
-
-1. **CRUD / FLS injection** (one config flag, big credibility win).
-2. **Apex test class generator** alongside the handler.
-3. **Field-aware SOQL** — track which fields are referenced and select them.
-4. **Subflow + Action Call** support (invocable Apex calls translate cleanly).
-5. **Screen Flow logic-only extraction** (UI stays in Flow / LWC; logic moves to Apex).
-6. **Direct deployment** via `sf project deploy start` integration.
-7. **Apex → Flow direction** (only if there's a strong use case — see scope discussion).
